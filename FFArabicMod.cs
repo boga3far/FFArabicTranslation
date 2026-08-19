@@ -1,4 +1,4 @@
-using MelonLoader;
+﻿using MelonLoader;
 using UnityEngine;
 using System;
 using System.IO;
@@ -15,6 +15,7 @@ namespace FFArabic
     {
         private static Dictionary<string, string> translations;
         private static HashSet<string> loggedMissingKeys = new HashSet<string>();
+        private static readonly char[] termSeparators = new[] { '/', '\\' };
         public static HashSet<string> loggedGlyphIssues = new HashSet<string>();
         public static TMP_FontAsset arabicFontAsset; // Bundled font asset
         public static TMP_FontAsset arabicSystemFontAsset; // System fallback font asset
@@ -35,6 +36,7 @@ namespace FFArabic
         {
             var harmony = new HarmonyLib.Harmony("com.ffarabic.mod");
             LoggerInstance.Msg("Applying Harmony patches...");
+            PatchLocalizationByTerm(harmony);
 
             // --- Patch for .text property setter ---
             try
@@ -77,6 +79,47 @@ namespace FFArabic
             }
         }
 
+        private void PatchLocalizationByTerm(HarmonyLib.Harmony harmony)
+        {
+            try
+            {
+                Type languageSourceDataType = AccessTools.TypeByName("I2.Loc.LanguageSourceData");
+                if (languageSourceDataType == null)
+                {
+                    LoggerInstance.Warning("Could not find I2.Loc.LanguageSourceData. Key-based translation patch skipped.");
+                    return;
+                }
+
+                var getTranslationMethod = AccessTools.Method(languageSourceDataType, "GetTranslation");
+                if (getTranslationMethod != null)
+                {
+                    var postfix = new HarmonyMethod(typeof(TranslationPatches), nameof(TranslationPatches.LanguageSourceGetTranslationPostfix));
+                    harmony.Patch(getTranslationMethod, postfix: postfix);
+                    LoggerInstance.Msg("Successfully patched I2.Loc.LanguageSourceData.GetTranslation.");
+                }
+                else
+                {
+                    LoggerInstance.Warning("Could not find I2.Loc.LanguageSourceData.GetTranslation.");
+                }
+
+                var tryGetTranslationMethod = AccessTools.Method(languageSourceDataType, "TryGetTranslation");
+                if (tryGetTranslationMethod != null)
+                {
+                    var postfix = new HarmonyMethod(typeof(TranslationPatches), nameof(TranslationPatches.LanguageSourceTryGetTranslationPostfix));
+                    harmony.Patch(tryGetTranslationMethod, postfix: postfix);
+                    LoggerInstance.Msg("Successfully patched I2.Loc.LanguageSourceData.TryGetTranslation.");
+                }
+                else
+                {
+                    LoggerInstance.Warning("Could not find I2.Loc.LanguageSourceData.TryGetTranslation.");
+                }
+            }
+            catch (Exception e)
+            {
+                LoggerInstance.Error($"Error patching I2 localization methods: {e}");
+            }
+        }
+
         private void LoadTranslations()
         {
             string jsonPath = Path.Combine(ModDirectory, "translations_by_key.json");
@@ -86,7 +129,10 @@ namespace FFArabic
                 try
                 {
                     string json = File.ReadAllText(jsonPath, Encoding.UTF8);
-                    translations = JsonConvert.DeserializeObject<Dictionary<string, string>>(json);
+                    var loadedTranslations = JsonConvert.DeserializeObject<Dictionary<string, string>>(json);
+                    translations = loadedTranslations != null
+                        ? new Dictionary<string, string>(loadedTranslations, StringComparer.OrdinalIgnoreCase)
+                        : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                     LoggerInstance.Msg($"Successfully loaded {translations.Count} translations.");
                 }
                 catch (Exception e)
@@ -179,35 +225,84 @@ namespace FFArabic
                 }
             }
         }
+
+        public static bool TryTranslateTerm(string key, out string translatedText)
+        {
+            translatedText = null;
+
+            if (translations == null || string.IsNullOrWhiteSpace(key))
+            {
+                return false;
+            }
+
+            if (translations.TryGetValue(key, out translatedText))
+            {
+                return true;
+            }
+
+            string trimmedKey = key.Trim();
+            if (!string.Equals(trimmedKey, key, StringComparison.Ordinal) &&
+                translations.TryGetValue(trimmedKey, out translatedText))
+            {
+                return true;
+            }
+
+            int separatorIndex = trimmedKey.LastIndexOfAny(termSeparators);
+            if (separatorIndex >= 0 && separatorIndex < trimmedKey.Length - 1)
+            {
+                string shortKey = trimmedKey.Substring(separatorIndex + 1);
+                if (translations.TryGetValue(shortKey, out translatedText))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
         
+        private static void LogMissingTranslation(string key)
+        {
+            if (string.IsNullOrWhiteSpace(key) || loggedMissingKeys.Contains(key))
+            {
+                return;
+            }
+
+            loggedMissingKeys.Add(key);
+
+            if (instance != null && ModDirectory != null)
+            {
+                string shortKey = key.Trim();
+                int separatorIndex = shortKey.LastIndexOfAny(termSeparators);
+                if (separatorIndex >= 0 && separatorIndex < shortKey.Length - 1)
+                {
+                    shortKey = shortKey.Substring(separatorIndex + 1);
+                }
+
+                instance.LoggerInstance.Warning($"[FFArabic] Missing translation for key: '{key}' | shortKey: '{shortKey}'");
+
+                try
+                {
+                    string untranslatedFilePath = Path.Combine(ModDirectory, "Untranslated.txt");
+                    File.AppendAllText(untranslatedFilePath, key + " | shortKey=" + shortKey + Environment.NewLine);
+                }
+                catch (Exception e)
+                {
+                    instance.LoggerInstance.Error($"Failed to write to Untranslated.txt: {e.Message}");
+                }
+            }
+        }
+
         public static string T(string key)
         {
-            if (key != null && translations != null && translations.TryGetValue(key, out string translatedText))
+            if (TryTranslateTerm(key, out string translatedText))
             {
-                // Return the raw translated text to test native TMP rendering
                 return translatedText;
             }
 
-            // Don't log null, empty, or whitespace strings as missing keys.
-            if (!string.IsNullOrWhiteSpace(key) && !loggedMissingKeys.Contains(key))
+            // Log missing keys with their short form to make diagnosis easier.
+            if (!string.IsNullOrWhiteSpace(key))
             {
-                loggedMissingKeys.Add(key);
-                
-                // Ensure instance and ModDirectory are initialized before logging/writing files.
-                if (instance != null && ModDirectory != null)
-                {
-                    instance.LoggerInstance.Msg($"Missing Key: \"{key}\"");
-
-                    try
-                    {
-                        string untranslatedFilePath = Path.Combine(ModDirectory, "Untranslated.txt");
-                        File.AppendAllText(untranslatedFilePath, key + Environment.NewLine);
-                    }
-                    catch (Exception e)
-                    {
-                        instance.LoggerInstance.Error($"Failed to write to Untranslated.txt: {e.Message}");
-                    }
-                }
+                LogMissingTranslation(key);
             }
 
             return key; // Return the key if no translation is found
@@ -366,28 +461,66 @@ namespace FFArabic
             }
 
             return FFArabicMod.arabicFontAsset;
+        }        public static void LanguageSourceGetTranslationPostfix(string term, ref string __result)
+        {
+            if (FFArabicMod.TryTranslateTerm(term, out string translatedText))
+            {
+                __result = translatedText;
+            }
+        }
+
+        public static void LanguageSourceTryGetTranslationPostfix(string term, ref bool __result, ref string Translation)
+        {
+            if (FFArabicMod.TryTranslateTerm(term, out string translatedText))
+            {
+                Translation = translatedText;
+                __result = true;
+            }
+        }
+
+        private static bool ContainsArabicText(string text)
+        {
+            if (string.IsNullOrEmpty(text))
+            {
+                return false;
+            }
+
+            for (int i = 0; i < text.Length; i++)
+            {
+                char c = text[i];
+                if (ArabicFixer.IsArabicChar(c) || ArabicFixer.IsArabicPresentationForm(c))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static void ApplyArabicFormatting(TextMeshProUGUI instance, ref string text)
+        {
+            if (instance == null || string.IsNullOrEmpty(text) || !ContainsArabicText(text))
+            {
+                return;
+            }
+
+            text = FormatArabicText(text);
+            TMP_FontAsset targetFont = SelectBestFontForText(text);
+            if (targetFont != null && instance.font != targetFont)
+            {
+                instance.font = targetFont;
+            }
+
+            FFArabicMod.EnsureFontGlyphs(instance.font, text);
+            instance.isRightToLeftText = true;
+            LogGlyphIssues(instance, text);
         }
 
         public static void StringPrefix(TextMeshProUGUI __instance, ref string __0)
         {
             if (FFArabicMod.arabicFontAsset != null && !string.IsNullOrEmpty(__0))
             {
-                string translated = FFArabicMod.T(__0);
-                if (__0 != translated)
-                {
-                    string formatted = FormatArabicText(translated);
-                    TMP_FontAsset targetFont = SelectBestFontForText(formatted);
-
-                    __0 = formatted;
-                    if (targetFont != null && __instance.font != targetFont)
-                    {
-                        __instance.font = targetFont;
-                    }
-                    FFArabicMod.EnsureFontGlyphs(__instance.font, __0);
-                    __instance.isRightToLeftText = true;
-                    LogGlyphIssues(__instance, __0);
-
-                }
+                ApplyArabicFormatting(__instance, ref __0);
             }
         }
 
@@ -395,23 +528,13 @@ namespace FFArabic
         {
             if (FFArabicMod.arabicFontAsset != null && __0 != null && __0.Length > 0)
             {
-                var originalString = __0.ToString();
-                var translatedString = FFArabicMod.T(originalString);
-                if (originalString != translatedString)
+                string originalString = __0.ToString();
+                string formatted = originalString;
+                ApplyArabicFormatting(__instance, ref formatted);
+                if (originalString != formatted)
                 {
-                    string formatted = FormatArabicText(translatedString);
-                    TMP_FontAsset targetFont = SelectBestFontForText(formatted);
-
                     __0.Clear();
                     __0.Append(formatted);
-                    if (targetFont != null && __instance.font != targetFont)
-                    {
-                        __instance.font = targetFont;
-                    }
-                    FFArabicMod.EnsureFontGlyphs(__instance.font, formatted);
-                    __instance.isRightToLeftText = true;
-                    LogGlyphIssues(__instance, formatted);
-
                 }
             }
         }
