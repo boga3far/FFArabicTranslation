@@ -81,7 +81,7 @@ public static class ArabicFixer
         _arabicMap.Add('\u0643', new ArabicCharInfo { Isolated = '\uFED9', Initial = '\uFEDB', Medial = '\uFEDC', Final = '\uFEDA', Connection = ConnectionType.Dual }); // Kaf
 
         // Lam
-        _arabicMap.Add('\u0644', new ArabicCharInfo { Isolated = '\uFEDD', Initial = '\uFEDF', Medial = '\uFEE0', Final = '\uFEDE', Connection = ConnectionType.Dual }); // Lam
+        _arabicMap.Add('\u0644', new ArabicCharInfo { Isolated = '\uFEDD', Initial = '\uFEDF', Medial = '\uFEDF', Final = '\uFEDE', Connection = ConnectionType.Dual }); // Lam
         _arabicMap.Add('\uFEFB', new ArabicCharInfo { Isolated = '\uFEFB', Initial = '\uFEFB', Medial = '\uFEFC', Final = '\uFEFC', Connection = ConnectionType.Dual }); // Lam-Alef isolated/initial
         _arabicMap.Add('\uFEFC', new ArabicCharInfo { Isolated = '\uFEFB', Initial = '\uFEFB', Medial = '\uFEFC', Final = '\uFEFC', Connection = ConnectionType.Dual }); // Lam-Alef final/medial
         _arabicMap.Add('\uFEF9', new ArabicCharInfo { Isolated = '\uFEF9', Initial = '\uFEF9', Medial = '\uFEFA', Final = '\uFEFA', Connection = ConnectionType.Dual }); // Lam-Alef with Hamza Below
