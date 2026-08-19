@@ -1,0 +1,9 @@
+# Visual Studio
+.vs/
+*.suo
+*.user
+*.userprefs
+
+# Build artifacts
+/bin/
+/obj/
