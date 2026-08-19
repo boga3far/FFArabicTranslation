@@ -77,6 +77,40 @@ namespace FFArabic
             {
                 LoggerInstance.Error($"Error patching TextMeshProUGUI.SetText(StringBuilder): {e}");
             }
+
+            // --- Patch for SetText(string ...) overloads (used by tooltips in some UI paths) ---
+            try
+            {
+                var prefix = new HarmonyMethod(typeof(TranslationPatches), nameof(TranslationPatches.StringSetTextPrefix));
+                int patchedCount = 0;
+
+                Type[] targetTypes = new[] { typeof(TextMeshProUGUI), typeof(TMP_Text) };
+                foreach (Type targetType in targetTypes)
+                {
+                    MethodInfo[] methods = targetType.GetMethods(BindingFlags.Instance | BindingFlags.Public);
+                    for (int i = 0; i < methods.Length; i++)
+                    {
+                        MethodInfo method = methods[i];
+                        if (method.Name != "SetText")
+                        {
+                            continue;
+                        }
+
+                        ParameterInfo[] parameters = method.GetParameters();
+                        if (parameters.Length > 0 && parameters[0].ParameterType == typeof(string))
+                        {
+                            harmony.Patch(method, prefix);
+                            patchedCount++;
+                        }
+                    }
+                }
+
+                LoggerInstance.Msg($"Successfully patched {patchedCount} TMP SetText(string ...) overload(s).");
+            }
+            catch (Exception e)
+            {
+                LoggerInstance.Error($"Error patching TMP SetText(string ...) overloads: {e}");
+            }
         }
 
         private void PatchLocalizationByTerm(HarmonyLib.Harmony harmony)
@@ -373,7 +407,7 @@ namespace FFArabic
             return false;
         }
 
-        private static void LogGlyphIssues(TextMeshProUGUI instance, string sourceText)
+        private static void LogGlyphIssues(TMP_Text instance, string sourceText)
         {
             if (FFArabicMod.instance == null || string.IsNullOrEmpty(sourceText))
             {
@@ -412,31 +446,35 @@ namespace FFArabic
             }
         }
 
-        private static string FormatArabicText(string text)
-        {
-            if (string.IsNullOrEmpty(text))
-            {
-                return text;
-            }
-
-            bool hasArabic = false;
-            for (int i = 0; i < text.Length; i++)
-            {
-                if (ArabicFixer.IsArabicChar(text[i]))
+                private static string FormatArabicText(string text)
                 {
-                    hasArabic = true;
-                    break;
+                    if (string.IsNullOrEmpty(text))
+                    {
+                        return text;
+                    }
+
+                    bool hasArabic = false;
+                    for (int i = 0; i < text.Length; i++)
+                    {
+                        if (ArabicFixer.IsArabicChar(text[i]))
+                        {
+                            hasArabic = true;
+                            break;
+                        }
+                    }
+
+                    if (!hasArabic)
+                    {
+                        return text;
+                    }
+
+                    string normalizedTextBuilder = new StringBuilder(text.Length)
+                        .Append(text)
+                        .ToString();
+
+                    string normalized = normalizedTextBuilder.Replace('?', '؟');
+                    return ArabicFixer.Reshape(normalized);
                 }
-            }
-
-            if (!hasArabic)
-            {
-                return text;
-            }
-
-            string normalized = text.Replace('?', '؟');
-            return ArabicFixer.Reshape(normalized);
-        }
 
         private static TMP_FontAsset SelectBestFontForText(string shapedText)
         {
@@ -461,7 +499,9 @@ namespace FFArabic
             }
 
             return FFArabicMod.arabicFontAsset;
-        }        public static void LanguageSourceGetTranslationPostfix(string term, ref string __result)
+        }
+
+        public static void LanguageSourceGetTranslationPostfix(string term, ref string __result)
         {
             if (FFArabicMod.TryTranslateTerm(term, out string translatedText))
             {
@@ -497,7 +537,7 @@ namespace FFArabic
             return false;
         }
 
-        private static void ApplyArabicFormatting(TextMeshProUGUI instance, ref string text)
+        private static void ApplyArabicFormatting(TMP_Text instance, ref string text)
         {
             if (instance == null || string.IsNullOrEmpty(text) || !ContainsArabicText(text))
             {
@@ -536,6 +576,14 @@ namespace FFArabic
                     __0.Clear();
                     __0.Append(formatted);
                 }
+            }
+        }
+
+        public static void StringSetTextPrefix(TMP_Text __instance, ref string __0)
+        {
+            if (FFArabicMod.arabicFontAsset != null && !string.IsNullOrEmpty(__0))
+            {
+                ApplyArabicFormatting(__instance, ref __0);
             }
         }
     }

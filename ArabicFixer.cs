@@ -82,14 +82,14 @@ public static class ArabicFixer
 
         // Lam
         _arabicMap.Add('\u0644', new ArabicCharInfo { Isolated = '\uFEDD', Initial = '\uFEDF', Medial = '\uFEDF', Final = '\uFEDE', Connection = ConnectionType.Dual }); // Lam
-        _arabicMap.Add('\uFEFB', new ArabicCharInfo { Isolated = '\uFEFB', Initial = '\uFEFB', Medial = '\uFEFC', Final = '\uFEFC', Connection = ConnectionType.Dual }); // Lam-Alef isolated/initial
-        _arabicMap.Add('\uFEFC', new ArabicCharInfo { Isolated = '\uFEFB', Initial = '\uFEFB', Medial = '\uFEFC', Final = '\uFEFC', Connection = ConnectionType.Dual }); // Lam-Alef final/medial
-        _arabicMap.Add('\uFEF9', new ArabicCharInfo { Isolated = '\uFEF9', Initial = '\uFEF9', Medial = '\uFEFA', Final = '\uFEFA', Connection = ConnectionType.Dual }); // Lam-Alef with Hamza Below
-        _arabicMap.Add('\uFEFA', new ArabicCharInfo { Isolated = '\uFEF9', Initial = '\uFEF9', Medial = '\uFEFA', Final = '\uFEFA', Connection = ConnectionType.Dual }); // Lam-Alef with Hamza Below
-        _arabicMap.Add('\uFEF7', new ArabicCharInfo { Isolated = '\uFEF7', Initial = '\uFEF7', Medial = '\uFEF8', Final = '\uFEF8', Connection = ConnectionType.Dual }); // Lam-Alef with Hamza Above
-        _arabicMap.Add('\uFEF8', new ArabicCharInfo { Isolated = '\uFEF7', Initial = '\uFEF7', Medial = '\uFEF8', Final = '\uFEF8', Connection = ConnectionType.Dual }); // Lam-Alef with Hamza Above
-        _arabicMap.Add('\uFEF5', new ArabicCharInfo { Isolated = '\uFEF5', Initial = '\uFEF5', Medial = '\uFEF6', Final = '\uFEF6', Connection = ConnectionType.Dual }); // Lam-Alef with Madda Above
-        _arabicMap.Add('\uFEF6', new ArabicCharInfo { Isolated = '\uFEF5', Initial = '\uFEF5', Medial = '\uFEF6', Final = '\uFEF6', Connection = ConnectionType.Dual }); // Lam-Alef with Madda Above
+        _arabicMap.Add('\uFEFB', new ArabicCharInfo { Isolated = '\uFEFB', Initial = '\uFEFB', Medial = '\uFEFC', Final = '\uFEFC', Connection = ConnectionType.Right }); // Lam-Alef isolated
+        _arabicMap.Add('\uFEFC', new ArabicCharInfo { Isolated = '\uFEFB', Initial = '\uFEFB', Medial = '\uFEFC', Final = '\uFEFC', Connection = ConnectionType.Right }); // Lam-Alef final
+        _arabicMap.Add('\uFEF9', new ArabicCharInfo { Isolated = '\uFEF9', Initial = '\uFEF9', Medial = '\uFEFA', Final = '\uFEFA', Connection = ConnectionType.Right }); // Lam-Alef with Hamza Below isolated
+        _arabicMap.Add('\uFEFA', new ArabicCharInfo { Isolated = '\uFEF9', Initial = '\uFEF9', Medial = '\uFEFA', Final = '\uFEFA', Connection = ConnectionType.Right }); // Lam-Alef with Hamza Below final
+        _arabicMap.Add('\uFEF7', new ArabicCharInfo { Isolated = '\uFEF7', Initial = '\uFEF7', Medial = '\uFEF8', Final = '\uFEF8', Connection = ConnectionType.Right }); // Lam-Alef with Hamza Above isolated
+        _arabicMap.Add('\uFEF8', new ArabicCharInfo { Isolated = '\uFEF7', Initial = '\uFEF7', Medial = '\uFEF8', Final = '\uFEF8', Connection = ConnectionType.Right }); // Lam-Alef with Hamza Above final
+        _arabicMap.Add('\uFEF5', new ArabicCharInfo { Isolated = '\uFEF5', Initial = '\uFEF5', Medial = '\uFEF6', Final = '\uFEF6', Connection = ConnectionType.Right }); // Lam-Alef with Madda Above isolated
+        _arabicMap.Add('\uFEF6', new ArabicCharInfo { Isolated = '\uFEF5', Initial = '\uFEF5', Medial = '\uFEF6', Final = '\uFEF6', Connection = ConnectionType.Right }); // Lam-Alef with Madda Above final
 
         // Meem
         _arabicMap.Add('\u0645', new ArabicCharInfo { Isolated = '\uFEE1', Initial = '\uFEE3', Medial = '\uFEE4', Final = '\uFEE2', Connection = ConnectionType.Dual }); // Meem
@@ -156,14 +156,14 @@ public static class ArabicFixer
             return text;
 
         StringBuilder normalizedTextBuilder = new StringBuilder(text.Length);
-        for (int i = 0; i < text.Length; i++)
+        foreach (char c in text)
         {
-            char c = text[i];
-            if (c == '\u200B' || c == '\u200C' || c == '\u200D' || c == '\u200E' || c == '\u200F' ||
-                c == '\u061C' || c == '\u2060' || c == '\u2066' || c == '\u2067' || c == '\u2068' ||
-                c == '\u2069' || c == '\u202A' || c == '\u202B' || c == '\u202C' || c == '\u202D' ||
-                c == '\u202E' || c == '\uFEFF')
+            if (IsHiddenFormattingChar(c))
+                continue;
+
+            if (c == '?')
             {
+                normalizedTextBuilder.Append('؟');
                 continue;
             }
 
@@ -171,41 +171,42 @@ public static class ArabicFixer
         }
 
         string normalizedText = normalizedTextBuilder.ToString();
-        StringBuilder shapedTextBuilder = new StringBuilder();
+        if (string.IsNullOrEmpty(normalizedText))
+            return normalizedText;
 
+        StringBuilder shapedTextBuilder = new StringBuilder(normalizedText.Length);
         for (int i = 0; i < normalizedText.Length; i++)
         {
             char current = normalizedText[i];
-            ArabicCharInfo currentInfo = GetCharInfo(current);
 
+            if (current == '\u0644' && i + 1 < normalizedText.Length)
+            {
+                char next = normalizedText[i + 1];
+                bool joinsToRight = HasJoinableCharacterBefore(normalizedText, i);
+                char ligature = GetLamAlefLigature(next, joinsToRight);
+                if (ligature != '\0')
+                {
+                    shapedTextBuilder.Append(ligature);
+                    i++;
+                    continue;
+                }
+            }
+
+            if (IsArabicPresentationForm(current))
+            {
+                shapedTextBuilder.Append(current);
+                continue;
+            }
+
+            ArabicCharInfo currentInfo = GetCharInfo(current);
             if (currentInfo == null)
             {
                 shapedTextBuilder.Append(current);
                 continue;
             }
 
-            ArabicCharInfo prevInfo = null;
-            for (int prevIndex = i - 1; prevIndex >= 0; prevIndex--)
-            {
-                prevInfo = GetCharInfo(normalizedText[prevIndex]);
-                if (prevInfo == null || prevInfo.Connection != ConnectionType.Transparent)
-                {
-                    break;
-                }
-            }
-
-            ArabicCharInfo nextInfo = null;
-            for (int nextIndex = i + 1; nextIndex < normalizedText.Length; nextIndex++)
-            {
-                nextInfo = GetCharInfo(normalizedText[nextIndex]);
-                if (nextInfo == null || nextInfo.Connection != ConnectionType.Transparent)
-                {
-                    break;
-                }
-            }
-
-            bool connectsToRight = prevInfo != null && (prevInfo.Connection == ConnectionType.Dual || prevInfo.Connection == ConnectionType.Right);
-            bool connectsToLeft = nextInfo != null && (nextInfo.Connection == ConnectionType.Dual || nextInfo.Connection == ConnectionType.Right);
+            bool connectsToRight = HasJoinableCharacterBefore(normalizedText, i);
+            bool connectsToLeft = HasJoinableCharacterAfter(normalizedText, i);
 
             if (currentInfo.Connection == ConnectionType.Dual)
             {
@@ -232,6 +233,72 @@ public static class ArabicFixer
         }
 
         return shapedTextBuilder.ToString();
+    }
+
+    private static bool IsHiddenFormattingChar(char c)
+    {
+        return c == '\u200B' || c == '\u200C' || c == '\u200D' || c == '\u200E' || c == '\u200F' ||
+               c == '\u061C' || c == '\u2060' || c == '\u2066' || c == '\u2067' || c == '\u2068' ||
+               c == '\u2069' || c == '\u202A' || c == '\u202B' || c == '\u202C' || c == '\u202D' ||
+               c == '\u202E' || c == '\uFEFF';
+    }
+
+    private static bool IsConnectionBoundary(char c)
+    {
+        if (IsHiddenFormattingChar(c))
+            return true;
+
+        if (char.IsWhiteSpace(c))
+            return true;
+
+        if (c == '.' || c == ',' || c == ';' || c == ':' || c == '!' || c == '?' || c == '؟' || c == ' ')
+            return true;
+
+        return false;
+    }
+
+    private static bool HasJoinableCharacterBefore(string text, int index)
+    {
+        for (int i = index - 1; i >= 0; i--)
+        {
+            char c = text[i];
+            if (IsConnectionBoundary(c))
+                return false;
+
+            ArabicCharInfo info = GetCharInfo(c);
+            if (info != null && info.Connection != ConnectionType.Transparent)
+                return info.Connection == ConnectionType.Dual;
+        }
+
+        return false;
+    }
+
+    private static bool HasJoinableCharacterAfter(string text, int index)
+    {
+        for (int i = index + 1; i < text.Length; i++)
+        {
+            char c = text[i];
+            if (IsConnectionBoundary(c))
+                return false;
+
+            ArabicCharInfo info = GetCharInfo(c);
+            if (info != null && info.Connection != ConnectionType.Transparent)
+                return info.Connection == ConnectionType.Dual || info.Connection == ConnectionType.Right;
+        }
+
+        return false;
+    }
+
+    private static char GetLamAlefLigature(char candidate, bool joinsToRight)
+    {
+        switch (candidate)
+        {
+            case '\u0627': return joinsToRight ? '\uFEFC' : '\uFEFB';
+            case '\u0623': return joinsToRight ? '\uFEF8' : '\uFEF7';
+            case '\u0625': return joinsToRight ? '\uFEFA' : '\uFEF9';
+            case '\u0622': return joinsToRight ? '\uFEF6' : '\uFEF5';
+            default: return '\0';
+        }
     }
 
     /// <summary>
